@@ -1,0 +1,949 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task Tree</title>
+<meta name="theme-color" content="#2b2b2b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/favicon.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --ink: #2b2b2b;
+    --muted: #7a7466;
+    --line: #b9b2a3;
+    --yellow: #fff59d; --pink: #f8bbd0; --blue: #b3e5fc; --green: #c5e1a5;
+    --orange: #ffcc80; --purple: #d1c4e9; --white: #fdfdfb;
+    --u-low: #5c8a9e; --u-medium: #c9a227; --u-high: #e07b28; --u-critical: #c62828;
+    --shadow: 0 2px 4px rgba(0,0,0,.12), 0 8px 16px rgba(0,0,0,.08);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Segoe UI", system-ui, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 14px 20px; border-bottom: 1px solid var(--line); background: #fbf9f4;
+  }
+  header h1 { font-size: 18px; margin: 0 12px 0 0; }
+  .crumbs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 14px; }
+  .crumbs button {
+    background: none; border: none; color: var(--muted); cursor: pointer; padding: 2px 4px; font: inherit; border-radius: 4px;
+  }
+  .crumbs button:hover { color: var(--ink); text-decoration: underline; }
+  .crumbs .current { color: var(--ink); font-weight: 600; }
+  .crumbs .sep { color: var(--line); }
+  .crumbs button.drop-into { outline: 2px dashed var(--ink); color: var(--ink); }
+  .filebar { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+  .filebar .dirty { color: #b5502a; }
+
+  .toolbar {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 8px 20px; border-bottom: 1px solid var(--line); background: #f8f5ee; font-size: 13px; color: var(--muted);
+  }
+  .toolbar label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  button.btn, .toolbar select {
+    font: inherit; padding: 5px 10px; border: 1px solid var(--line); border-radius: 6px;
+    background: #fff; color: var(--ink); cursor: pointer;
+  }
+  button.btn:hover, .toolbar select:hover { border-color: var(--muted); }
+  button.btn:disabled { opacity: .45; cursor: default; border-color: var(--line); }
+  #up { font-weight: 600; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .seg { display: flex; }
+  .seg button { border-radius: 0; margin-left: -1px; }
+  .seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+  .seg button:last-child { border-radius: 0 6px 6px 0; }
+  .seg button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .levels { display: flex; align-items: center; gap: 4px; }
+  .levels button { padding: 4px 8px; }
+  .hint { margin-left: auto; }
+
+  main { padding: 28px 20px 60px; display: flex; flex-direction: column; align-items: center; }
+
+  .note {
+    position: relative; width: 190px; min-height: 150px; padding: 14px 14px 44px;
+    box-shadow: var(--shadow); cursor: pointer; transition: transform .15s;
+    word-wrap: break-word; font-size: 15px; line-height: 1.35;
+    border-left: 5px solid transparent;
+  }
+  @media (hover: hover) { .note:hover { transform: translateY(-3px) rotate(-.5deg); } }
+  body.dragging .note:hover { transform: none; }
+  .note.done .title { text-decoration: line-through; opacity: .55; }
+  .note.done { opacity: .75; }
+  .note.u-low { border-left-color: var(--u-low); }
+  .note.u-medium { border-left-color: var(--u-medium); }
+  .note.u-high { border-left-color: var(--u-high); }
+  .note.u-critical { border-left-color: var(--u-critical); }
+  .note.dragging { opacity: .35; }
+  .note.drop-into { outline: 3px dashed var(--ink); outline-offset: 3px; }
+  .note.drop-before { box-shadow: -7px 0 0 -2px var(--ink), var(--shadow); }
+  .note.drop-after { box-shadow: 7px 0 0 -2px var(--ink), var(--shadow); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+  .chip {
+    font-size: 11px; font-weight: 600; border-radius: 9px; padding: 1px 7px;
+    background: rgba(0,0,0,.08); white-space: nowrap;
+  }
+  .chip.urg { color: #fff; }
+  .chip.urg.low { background: var(--u-low); }
+  .chip.urg.medium { background: var(--u-medium); }
+  .chip.urg.high { background: var(--u-high); }
+  .chip.urg.critical { background: var(--u-critical); }
+  .chip.overdue { background: var(--u-critical); color: #fff; }
+  .chip.soon { background: var(--u-high); color: #fff; }
+  .chip.inherited { background: transparent; border: 1px solid rgba(0,0,0,.25); font-weight: 400; }
+
+  .note .notes { font-size: 12px; color: rgba(0,0,0,.55); margin-top: 6px; white-space: pre-line;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .parent .notes { -webkit-line-clamp: 6; }
+
+  .progress {
+    position: absolute; left: 14px; right: 14px; bottom: 34px; height: 4px;
+    background: rgba(0,0,0,.1); border-radius: 2px; overflow: hidden;
+  }
+  .progress > div { height: 100%; background: rgba(0,0,0,.45); }
+
+  .note .count {
+    position: absolute; bottom: 8px; right: 10px; font-size: 12px; font-weight: 600;
+    background: rgba(0,0,0,.08); border-radius: 10px; padding: 2px 8px;
+  }
+  .note .count.none { opacity: .45; font-weight: 400; }
+
+  /* hover toolbar, floating on the top edge of a note */
+  .note .tools {
+    position: absolute; top: -13px; right: 6px; display: flex; gap: 1px; padding: 2px;
+    background: #fff; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,.25);
+    opacity: 0; pointer-events: none; transition: opacity .15s; z-index: 2;
+  }
+  .note:hover .tools, .note:focus-within .tools { opacity: 1; pointer-events: auto; }
+  body.dragging .note .tools { opacity: 0; }
+  .note .tools button {
+    border: none; background: none; border-radius: 4px; cursor: pointer;
+    width: 24px; height: 22px; font-size: 13px; line-height: 1; color: var(--ink);
+  }
+  .note .tools button:hover { background: rgba(0,0,0,.1); }
+
+  .parent { width: 260px; min-height: 130px; cursor: default; }
+  .parent .title { font-size: 18px; font-weight: 600; }
+  .parent:hover { transform: none; }
+  .parent .tools { opacity: 1; pointer-events: auto; }
+
+  /* focus view: org-chart connectors */
+  .stem { width: 2px; height: 28px; background: var(--line); }
+  .row {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 28px 24px;
+    position: relative; padding-top: 28px; max-width: 1150px;
+  }
+  .row.has-line::before {
+    content: ""; position: absolute; top: 0; left: 95px; right: 95px; height: 2px; background: var(--line);
+  }
+  .slot { position: relative; }
+  .slot::before {
+    content: ""; position: absolute; top: -28px; left: 50%; width: 2px; height: 28px; background: var(--line);
+  }
+
+  .add {
+    width: 190px; min-height: 150px; border: 2px dashed var(--line); background: transparent;
+    color: var(--muted); cursor: pointer; font: inherit;
+  }
+  .add:hover { border-color: var(--muted); color: var(--ink); }
+
+  .empty { color: var(--muted); margin-top: 8px; font-size: 14px; }
+
+  textarea.edit {
+    width: 100%; min-height: 70px; border: none; background: rgba(255,255,255,.4); resize: none;
+    font: inherit; color: inherit; padding: 4px; outline: 1px solid rgba(0,0,0,.2);
+  }
+
+  /* tree view: nested lists drawn as an org chart */
+  main.tree-mode { align-items: stretch; padding-left: 0; padding-right: 0; }
+  .tree-wrap { overflow-x: auto; padding: 16px 20px 20px; }
+  .tree { width: max-content; min-width: 100%; }
+  .tree ul { display: flex; justify-content: center; margin: 0; padding: 22px 0 0; position: relative; }
+  .tree > ul { padding-top: 0; }
+  .tree li { list-style: none; position: relative; padding: 22px 7px 0; display: flex; flex-direction: column; align-items: center; }
+  .tree li::before, .tree li::after {
+    content: ""; position: absolute; top: 0; right: 50%; width: 50%; height: 22px; border-top: 2px solid var(--line);
+  }
+  .tree li::after { right: auto; left: 50%; border-left: 2px solid var(--line); }
+  .tree li:only-child::before { display: none; }
+  .tree li:only-child::after { border-top: none; }
+  .tree li:first-child::before, .tree li:last-child::after { border-top: none; }
+  .tree li:last-child::before { border-right: 2px solid var(--line); }
+  .tree > ul > li { padding-top: 0; }
+  .tree > ul > li::before, .tree > ul > li::after { display: none; }
+  .tree ul ul::before {
+    content: ""; position: absolute; top: 0; left: 50%; height: 22px; border-left: 2px solid var(--line); margin-left: -1px;
+  }
+  .note.compact { width: 160px; min-height: 96px; padding: 12px 12px 36px; font-size: 14px; }
+  .note.compact .progress { bottom: 30px; left: 12px; right: 12px; }
+  .note.compact .count { bottom: 6px; right: 8px; }
+  .note.compact.root-node .title { font-weight: 600; }
+
+  /* editor dialog */
+  dialog {
+    border: none; border-radius: 10px; padding: 0; width: min(420px, calc(100vw - 32px));
+    box-shadow: 0 10px 40px rgba(0,0,0,.25); color: var(--ink);
+  }
+  dialog::backdrop { background: rgba(40,35,25,.35); }
+  dialog form { padding: 20px; display: grid; gap: 12px; }
+  dialog h2 { margin: 0 0 4px; font-size: 17px; }
+  dialog label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  dialog input, dialog select, dialog textarea {
+    font: inherit; font-size: 15px; color: var(--ink); padding: 7px 9px;
+    border: 1px solid var(--line); border-radius: 6px; background: #fff;
+  }
+  dialog textarea { min-height: 80px; resize: vertical; }
+  dialog .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  dialog .swatch { width: 100%; height: 6px; border-radius: 3px; margin-top: 2px; }
+  dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+  dialog .actions button {
+    font: inherit; padding: 7px 16px; border-radius: 6px; border: 1px solid var(--line);
+    background: #fff; cursor: pointer;
+  }
+  dialog .actions button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+  /* touch screens: no hover, so a ⋯ button opens a note's tools; press and hold to drag */
+  .note .more { display: none; }
+  .ghost { position: fixed; z-index: 10; pointer-events: none; opacity: .85; transform: rotate(-3deg) scale(1.03); margin: 0; }
+  @media (hover: none) {
+    .note { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    .note .tools, .note:hover .tools, .note:focus-within .tools { opacity: 0; pointer-events: none; }
+    .note.show-tools .tools, .parent .tools { opacity: 1; pointer-events: auto; }
+    .note .tools { top: -18px; }
+    .note .tools button { width: 34px; height: 32px; font-size: 16px; }
+    .note .more {
+      display: block; position: absolute; top: 2px; right: 2px; width: 36px; height: 30px;
+      border: none; background: none; font-size: 20px; line-height: 1; color: rgba(0,0,0,.5); border-radius: 6px;
+    }
+    .note.show-tools .more { visibility: hidden; }
+    .parent .more { display: none; }
+    .note .chips { padding-right: 28px; }
+    .parent .chips { padding-right: 0; }
+    .parent { margin-top: 12px; }
+  }
+
+  /* phone-sized screens */
+  @media (max-width: 600px) {
+    header { padding: 10px 12px; gap: 8px; }
+    header h1 { font-size: 16px; margin-right: 4px; }
+    .filebar { gap: 6px; }
+    .toolbar { padding: 8px 12px; gap: 8px; }
+    .hint { display: none; }
+    #up { max-width: 100%; flex: 1 1 100%; text-align: left; }
+    main { padding: 22px 12px 60px; }
+    .note { width: 150px; min-height: 120px; padding: 12px 12px 40px; font-size: 14px; }
+    .parent { width: 100%; max-width: 320px; min-height: 110px; }
+    .add { width: 150px; min-height: 120px; }
+    .row { gap: 24px 12px; }
+    .row.has-line::before { left: 75px; right: 75px; }
+    .tree-wrap { padding: 16px 12px 20px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Task Tree</h1>
+  <nav class="crumbs" id="crumbs"></nav>
+  <div class="filebar">
+    <span id="status"></span>
+    <button class="btn" id="openFile" title="Load tasks from a file made with Save file">Open file</button>
+    <button class="btn" id="saveFile" title="Download a copy of this app with your tasks inside it">Save file</button>
+    <input type="file" id="fileInput" accept="text/html,.html,.htm" hidden>
+  </div>
+</header>
+<div class="toolbar">
+  <button class="btn" id="up">↑ Up</button>
+  <div class="seg" id="modes">
+    <button class="btn" data-mode="focus" title="One level at a time; click a task to go into it">Focus</button>
+    <button class="btn" data-mode="tree" title="The whole tree; click a task to expand or collapse it">Tree</button>
+  </div>
+  <span class="levels" id="levels">Expand:
+    <button class="btn" data-lv="1">1</button>
+    <button class="btn" data-lv="2">2</button>
+    <button class="btn" data-lv="3">3</button>
+    <button class="btn" data-lv="all">All</button>
+    <button class="btn" data-lv="0">Collapse</button>
+  </span>
+  <select id="sort" title="Order of the tasks on each level">
+    <option value="manual">Order: as added</option>
+    <option value="urgency">Order: most urgent</option>
+    <option value="due">Order: due soonest</option>
+  </select>
+  <label title="Hide tasks marked done"><input type="checkbox" id="hideDone"> Hide done</label>
+  <span class="hint" id="hint"></span>
+</div>
+<main id="main"></main>
+
+<dialog id="editor">
+  <form method="dialog">
+    <h2 id="edTitle">Edit task</h2>
+    <label>Task<input id="edName" required autocomplete="off"></label>
+    <div class="pair">
+      <label>Colour
+        <select id="edColor"></select>
+        <div class="swatch" id="edSwatch"></div>
+      </label>
+      <label>Urgency
+        <select id="edUrgency">
+          <option value="none">None</option>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="critical">Critical</option>
+        </select>
+      </label>
+    </div>
+    <label>Due date<input type="date" id="edDue"></label>
+    <label>Notes<textarea id="edNotes"></textarea></label>
+    <div class="actions">
+      <button value="cancel" formnovalidate>Cancel</button>
+      <button value="ok" class="primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Tasks saved with "Save file" are written here -->
+<script id="embedded" type="application/json"></script>
+
+<script>
+// Snapshot of the page before rendering, used as the template for "Save file"
+const SOURCE = "<!doctype html>\n" + document.documentElement.outerHTML;
+const KEY = "task-tree-v1";
+const COLORS = ["yellow", "pink", "blue", "green", "orange", "purple", "white"];
+const URGENCY = ["none", "low", "medium", "high", "critical"];
+const cap = s => s[0].toUpperCase() + s.slice(1);
+// Phones and tablets: no hover, so note tools open with a ⋯ button and dragging is press-and-hold
+const touchUI = !!(window.matchMedia && matchMedia("(hover: none)").matches);
+
+// Data: { tasks: { id: {id, title, done, color, urgency, due, notes, parent, children: [ids]} },
+//         focus: id, view: {mode, sort, hideDone, expanded: {id: true}}, savedAt, fileSavedAt }
+let state = load();
+
+// Use whichever is newer: tasks stored in this browser, or tasks saved inside the file
+function load() {
+  const valid = s => s && s.tasks && s.tasks.root;
+  let local = null, embedded = null;
+  try { local = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+  try { embedded = JSON.parse(document.getElementById("embedded").textContent); } catch (e) {}
+  let s;
+  if (valid(local) && valid(embedded)) s = (local.savedAt || 0) >= (embedded.savedAt || 0) ? local : embedded;
+  else if (valid(local)) s = local;
+  else if (valid(embedded)) s = embedded;
+  else s = {
+    focus: "root",
+    tasks: { root: { id: "root", title: "My Tasks", done: false, color: "yellow", parent: null, children: [] } }
+  };
+  return normalize(s);
+}
+// Fill in fields added after v1 so older saves keep working
+function normalize(s) {
+  s.view = Object.assign({ mode: "focus", sort: "manual", hideDone: false, expanded: {} }, s.view);
+  for (const t of Object.values(s.tasks)) {
+    t.urgency = t.urgency || "none"; t.due = t.due || ""; t.notes = t.notes || "";
+  }
+  return s;
+}
+function store() {
+  try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+}
+// A change to the tasks themselves (marks the file as having unsaved changes)
+function save() { state.savedAt = Date.now(); store(); }
+// A change to how things are shown (doesn't count as unsaved work)
+function setView(k, v) { state.view[k] = v; store(); render(); }
+
+// On a phone this opens the share sheet (Drive, email...), elsewhere it downloads the file
+async function saveFile() {
+  const prev = [state.savedAt, state.fileSavedAt];
+  state.fileSavedAt = state.savedAt = Date.now();
+  const json = JSON.stringify(state).replace(/</g, "\\u003c");
+  const html = SOURCE.replace(/(<script id="embedded" type="application\/json">)[\s\S]*?(<\/script>)/, (_, a, b) => a + json + b);
+  const file = new File([html], "task-tree.html", { type: "text/html" });
+  if (touchUI && navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: "Task Tree" }); }
+    catch (e) { [state.savedAt, state.fileSavedAt] = prev; return; }  // share cancelled
+  } else {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(file);
+    a.download = "task-tree.html";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  store(); render();
+}
+// Replace the tasks with those inside a file made by "Save file"
+function importFile(text) {
+  let s = null;
+  try { s = JSON.parse(new DOMParser().parseFromString(text, "text/html").getElementById("embedded").textContent); } catch (e) {}
+  if (!s || !s.tasks || !s.tasks.root) { alert("That file doesn't contain any saved tasks."); return false; }
+  const when = s.savedAt ? new Date(s.savedAt).toLocaleString() : "an unknown date";
+  const newer = (state.savedAt || 0) > (s.savedAt || 0) ? "\n\nCareful: your tasks here were changed more recently than that file." : "";
+  if (!confirm(`Replace your tasks with the ones in this file (saved ${when})?${newer}`)) return false;
+  state = normalize(s);
+  state.fileSavedAt = state.savedAt;
+  store(); render();
+  return true;
+}
+document.getElementById("saveFile").onclick = saveFile;
+if (touchUI) document.getElementById("saveFile").textContent = "Share file";
+document.getElementById("openFile").onclick = () => document.getElementById("fileInput").click();
+document.getElementById("fileInput").onchange = e => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (f) f.text().then(importFile);
+};
+const uid = () => Math.random().toString(36).slice(2, 10);
+const T = id => state.tasks[id];
+
+// Count every descendant, the number still open and done, and the most urgent open one
+function stats(id) {
+  let total = 0, open = 0, worst = 0;
+  for (const c of T(id).children) {
+    const t = T(c);
+    total++;
+    if (!t.done) { open++; worst = Math.max(worst, URGENCY.indexOf(t.urgency)); }
+    const s = stats(c); total += s.total; open += s.open; worst = Math.max(worst, s.worst);
+  }
+  return { total, open, worst };
+}
+// True if `id` sits somewhere below `ancestor`
+function isInside(id, ancestor) {
+  for (let x = T(id); x && x.parent; x = T(x.parent)) if (x.parent === ancestor) return true;
+  return false;
+}
+
+function addTask(parentId, fields) {
+  const id = uid();
+  const p = T(parentId);
+  state.tasks[id] = Object.assign({
+    id, title: "", done: false, color: COLORS[p.children.length % 5],
+    urgency: "none", due: "", notes: "", parent: parentId, children: []
+  }, fields);
+  p.children.push(id);
+  state.view.expanded[parentId] = true;
+  save(); render();
+}
+function removeTask(id) {
+  const t = T(id);
+  const n = stats(id).total;
+  if (!confirm(`Delete "${t.title}"${n ? ` and its ${n} sub-task${n > 1 ? "s" : ""}` : ""}?`)) return;
+  (function drop(x) { T(x).children.forEach(drop); delete state.tasks[x]; delete state.view.expanded[x]; })(id);
+  const p = T(t.parent);
+  p.children = p.children.filter(c => c !== id);
+  save(); render();
+}
+// Copy a task and everything under it, placed right after the original
+function duplicateTask(id) {
+  const clone = (srcId, parent) => {
+    const src = T(srcId), n = uid();
+    state.tasks[n] = Object.assign({}, src, { id: n, parent, children: [] });
+    state.tasks[n].children = src.children.map(c => clone(c, n));
+    if (state.view.expanded[srcId]) state.view.expanded[n] = true;
+    return n;
+  };
+  const t = T(id), p = T(t.parent);
+  const n = clone(id, t.parent);
+  T(n).title = t.title + " (copy)";
+  p.children.splice(p.children.indexOf(id) + 1, 0, n);
+  save(); render();
+  return n;
+}
+// Move a task: zone "into" makes it the last child of target; "before"/"after" places it beside target
+function canMove(id, targetId, zone) {
+  if (!id || id === targetId || isInside(targetId, id)) return false;
+  if (zone !== "into" && !T(targetId).parent) return false;
+  return true;
+}
+function moveTask(id, targetId, zone) {
+  if (!canMove(id, targetId, zone)) return false;
+  const t = T(id);
+  const old = T(t.parent);
+  old.children = old.children.filter(c => c !== id);
+  let np;
+  if (zone === "into") {
+    np = T(targetId);
+    np.children.push(id);
+    state.view.expanded[targetId] = true;
+  } else {
+    np = T(T(targetId).parent);
+    np.children.splice(np.children.indexOf(targetId) + (zone === "after" ? 1 : 0), 0, id);
+    // A sorted view would hide the new position, so switch back to manual order
+    state.view.sort = "manual";
+  }
+  t.parent = np.id;
+  save(); render();
+  return true;
+}
+function toggleDone(id) { T(id).done = !T(id).done; save(); render(); }
+function focus(id) { state.focus = id; store(); render(); }
+// Go one level up; in tree view the parent is expanded so you can still see where you were
+function goUp() {
+  const p = T(state.focus).parent;
+  if (!p) return;
+  state.view.expanded[p] = true;
+  focus(p);
+}
+function toggleExpand(id) {
+  const e = state.view.expanded;
+  if (e[id]) delete e[id]; else e[id] = true;
+  store(); render();
+}
+// Expand the tree under the focused task to `depth` levels (0 = collapse everything)
+function expandTo(depth) {
+  const e = {};
+  (function walk(id, d) {
+    if (d >= depth) return;
+    e[id] = true;
+    T(id).children.forEach(c => walk(c, d + 1));
+  })(state.focus, 0);
+  state.view.expanded = e;
+  store(); render();
+}
+
+// ---- Editor dialog (used for editing a task and for adding a sub-task) ----
+const ed = id => document.getElementById(id);
+ed("edColor").innerHTML = COLORS.map(c => `<option value="${c}">${cap(c)}</option>`).join("");
+ed("edColor").onchange = () => { ed("edSwatch").style.background = `var(--${ed("edColor").value})`; };
+
+function openEditor(heading, t, onSave) {
+  ed("edTitle").textContent = heading;
+  ed("edName").value = t.title;
+  ed("edColor").value = t.color;
+  ed("edColor").onchange();
+  ed("edUrgency").value = t.urgency;
+  ed("edDue").value = t.due;
+  ed("edNotes").value = t.notes;
+  const dlg = ed("editor");
+  dlg.returnValue = "";
+  dlg.onclose = () => {
+    if (dlg.returnValue !== "ok" || !ed("edName").value.trim()) return;
+    onSave({
+      title: ed("edName").value.trim(), color: ed("edColor").value, urgency: ed("edUrgency").value,
+      due: ed("edDue").value, notes: ed("edNotes").value.trim()
+    });
+  };
+  dlg.showModal();
+  ed("edName").focus();
+}
+const editTask = id => openEditor("Edit task", T(id), f => { Object.assign(T(id), f); save(); render(); });
+const addChild = id => openEditor(`New sub-task of "${T(id).title}"`,
+  { title: "", color: COLORS[T(id).children.length % 5], urgency: "none", due: "", notes: "" },
+  f => addTask(id, f));
+
+// Swap a note's title for a textarea; Enter saves, Esc cancels
+function editInPlace(el, initial, onSave) {
+  const ta = document.createElement("textarea");
+  ta.className = "edit"; ta.value = initial;
+  el.replaceWith(ta); ta.focus(); ta.select();
+  let finished = false;
+  const finish = ok => {
+    if (finished) return; finished = true;
+    const v = ta.value.trim();
+    if (ok && v) onSave(v); else render();
+  };
+  ta.addEventListener("click", e => e.stopPropagation());
+  ta.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); finish(true); }
+    if (e.key === "Escape") finish(false);
+  });
+  ta.addEventListener("blur", () => finish(true));
+}
+
+// ---- Drag and drop ----
+// Drop on the middle of a note to put the task inside it, or near its left/right edge to place it beside.
+let dragId = null;
+const clearDrop = () => document.querySelectorAll(".drop-into, .drop-before, .drop-after")
+  .forEach(el => el.classList.remove("drop-into", "drop-before", "drop-after"));
+
+function zoneFor(e, el, intoOnly) {
+  if (intoOnly) return "into";
+  const r = el.getBoundingClientRect();
+  const x = r.width ? (e.clientX - r.left) / r.width : 0.5;
+  return x < 0.25 ? "before" : x > 0.75 ? "after" : "into";
+}
+function makeDraggable(el, id) {
+  makeTouchDraggable(el, id);
+  if (touchUI) return;  // phones use press-and-hold instead (see below)
+  el.draggable = true;
+  el.addEventListener("dragstart", e => {
+    dragId = id;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", id);
+    document.body.classList.add("dragging");
+    setTimeout(() => el.classList.add("dragging"), 0);
+  });
+  el.addEventListener("dragend", () => {
+    dragId = null; clearDrop();
+    document.body.classList.remove("dragging");
+    el.classList.remove("dragging");
+  });
+}
+const dropTargets = new WeakMap();  // element -> {id, intoOnly}, used by touch drag to find what's under the finger
+function makeDropTarget(el, id, intoOnly) {
+  dropTargets.set(el, { id, intoOnly });
+  el.addEventListener("dragover", e => {
+    if (!dragId) return;
+    const zone = zoneFor(e, el, intoOnly);
+    if (!canMove(dragId, id, zone)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    clearDrop();
+    el.classList.add("drop-" + zone);
+  });
+  el.addEventListener("dragleave", e => { if (!el.contains(e.relatedTarget)) el.classList.remove("drop-into", "drop-before", "drop-after"); });
+  el.addEventListener("drop", e => {
+    e.preventDefault();
+    const zone = zoneFor(e, el, intoOnly);
+    const moving = dragId;
+    dragId = null; clearDrop();
+    document.body.classList.remove("dragging");
+    moveTask(moving, id, zone);
+  });
+}
+
+// Touch: press and hold a note for half a second, then drag it. Moving the finger sooner scrolls as normal.
+let touchDrag = null, swallowClick = false;
+function makeTouchDraggable(el, id) {
+  el.addEventListener("touchstart", e => {
+    if (e.touches.length !== 1 || e.target.closest(".tools, .more")) return;
+    const p = e.touches[0], start = { x: p.clientX, y: p.clientY };
+    const cancel = () => {
+      clearTimeout(timer);
+      el.removeEventListener("touchmove", moved);
+      el.removeEventListener("touchend", cancel);
+      el.removeEventListener("touchcancel", cancel);
+    };
+    const moved = ev => { const q = ev.touches[0]; if (Math.hypot(q.clientX - start.x, q.clientY - start.y) > 10) cancel(); };
+    const timer = setTimeout(() => { cancel(); startTouchDrag(el, id, start); }, 450);
+    el.addEventListener("touchmove", moved, { passive: true });
+    el.addEventListener("touchend", cancel);
+    el.addEventListener("touchcancel", cancel);
+  }, { passive: true });
+  el.addEventListener("contextmenu", e => { if (touchUI) e.preventDefault(); });
+}
+function startTouchDrag(el, id, pos) {
+  const r = el.getBoundingClientRect();
+  const ghost = el.cloneNode(true);
+  ghost.classList.add("ghost");
+  ghost.style.width = el.offsetWidth + "px";
+  document.body.appendChild(ghost);
+  touchDrag = { el, ghost, dx: pos.x - r.left, dy: pos.y - r.top, target: null, zone: null };
+  dragId = id;
+  document.body.classList.add("dragging");
+  el.classList.add("dragging");
+  if (navigator.vibrate) navigator.vibrate(20);
+  moveTouchDrag(pos.x, pos.y);
+}
+function moveTouchDrag(x, y) {
+  const d = touchDrag;
+  d.ghost.style.left = x - d.dx + "px";
+  d.ghost.style.top = y - d.dy + "px";
+  // Scroll when the finger nears an edge
+  if (y < 50) window.scrollBy(0, -15); else if (y > innerHeight - 50) window.scrollBy(0, 15);
+  const wrap = document.querySelector(".tree-wrap");
+  if (wrap) { if (x < 40) wrap.scrollLeft -= 15; else if (x > innerWidth - 40) wrap.scrollLeft += 15; }
+  clearDrop();
+  d.target = d.zone = null;
+  let t = document.elementFromPoint(x, y);
+  while (t && !dropTargets.has(t)) t = t.parentElement;
+  if (!t) return;
+  const { id, intoOnly } = dropTargets.get(t);
+  const zone = zoneFor({ clientX: x }, t, intoOnly);
+  if (!canMove(dragId, id, zone)) return;
+  t.classList.add("drop-" + zone);
+  d.target = id; d.zone = zone;
+}
+function endTouchDrag(drop) {
+  const d = touchDrag, moving = dragId;
+  touchDrag = dragId = null;
+  d.ghost.remove();
+  clearDrop();
+  document.body.classList.remove("dragging");
+  d.el.classList.remove("dragging");
+  // The lifted finger would otherwise also count as a tap on the note
+  swallowClick = true;
+  setTimeout(() => { swallowClick = false; }, 400);
+  if (drop && d.target) moveTask(moving, d.target, d.zone);
+}
+document.addEventListener("touchmove", e => {
+  if (!touchDrag) return;
+  e.preventDefault();
+  moveTouchDrag(e.touches[0].clientX, e.touches[0].clientY);
+}, { passive: false });
+document.addEventListener("touchend", () => { if (touchDrag) endTouchDrag(true); });
+document.addEventListener("touchcancel", () => { if (touchDrag) endTouchDrag(false); });
+document.addEventListener("click", e => {
+  if (swallowClick) { swallowClick = false; e.stopPropagation(); e.preventDefault(); }
+}, true);
+
+// ---- Rendering ----
+const today = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
+const parseDate = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+
+function dueChip(t) {
+  if (!t.due) return null;
+  const d = parseDate(t.due);
+  const days = Math.round((d - today()) / 864e5);
+  const label = d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  const chip = document.createElement("span");
+  chip.className = "chip";
+  if (t.done) chip.textContent = `Due ${label}`;
+  else if (days < 0) { chip.className += " overdue"; chip.textContent = `Overdue · ${label}`; }
+  else if (days === 0) { chip.className += " soon"; chip.textContent = "Due today"; }
+  else if (days === 1) { chip.className += " soon"; chip.textContent = "Due tomorrow"; }
+  else chip.textContent = `Due ${label}`;
+  return chip;
+}
+
+// kind: "parent" (big note at top of focus view), "child" (focus view row), "tree" (tree view)
+function noteEl(id, kind) {
+  const t = T(id);
+  const s = stats(id);
+  const isTreeRoot = kind === "tree" && id === state.focus;
+  const el = document.createElement("div");
+  el.className = `note ${kind === "parent" ? "parent" : ""} ${kind === "tree" ? "compact" : ""} ${isTreeRoot ? "root-node" : ""} ${t.done ? "done" : ""} u-${t.urgency}`;
+  el.style.background = `var(--${t.color})`;
+  el.dataset.id = id;
+
+  const chips = document.createElement("div");
+  chips.className = "chips";
+  if (t.urgency !== "none") {
+    chips.appendChild(Object.assign(document.createElement("span"), { className: `chip urg ${t.urgency}`, textContent: cap(t.urgency) }));
+  }
+  // Flag urgent work hidden further down the tree
+  if (s.worst >= 3 && s.worst > URGENCY.indexOf(t.urgency)) {
+    chips.appendChild(Object.assign(document.createElement("span"), {
+      className: "chip inherited", textContent: `⚑ ${cap(URGENCY[s.worst])} inside`,
+      title: `Has an open sub-task marked ${URGENCY[s.worst]}`
+    }));
+  }
+  const due = dueChip(t);
+  if (due) chips.appendChild(due);
+  if (kind === "tree" && t.notes) {
+    chips.appendChild(Object.assign(document.createElement("span"), { className: "chip", textContent: "✎ notes", title: t.notes }));
+  }
+  if (chips.children.length) el.appendChild(chips);
+
+  const title = document.createElement("div");
+  title.className = "title"; title.textContent = t.title;
+  el.appendChild(title);
+
+  if (t.notes && kind !== "tree") el.appendChild(Object.assign(document.createElement("div"), { className: "notes", textContent: t.notes }));
+
+  if (s.total) {
+    const bar = document.createElement("div");
+    bar.className = "progress";
+    bar.title = `${s.total - s.open} of ${s.total} sub-tasks done`;
+    bar.innerHTML = `<div style="width:${Math.round(100 * (s.total - s.open) / s.total)}%"></div>`;
+    el.appendChild(bar);
+  }
+
+  const n = t.children.length;
+  const count = document.createElement("span");
+  count.className = "count" + (n ? "" : " none");
+  const label = n ? `${n} sub-task${n > 1 ? "s" : ""}` : "no sub-tasks";
+  if (kind === "tree" && n) count.textContent = `${state.view.expanded[id] ? "▾" : "▸"} ${label}`;
+  else count.textContent = label + (s.total > n ? ` · ${s.total} total` : "");
+  count.title = `${s.open} of ${s.total} still open`;
+  el.appendChild(count);
+
+  const tools = document.createElement("div");
+  tools.className = "tools";
+  const btn = (label, tip, fn) => {
+    const b = document.createElement("button");
+    b.textContent = label; b.title = tip;
+    b.addEventListener("click", e => { e.stopPropagation(); fn(); });
+    tools.appendChild(b);
+  };
+  btn(t.done ? "↺" : "✓", t.done ? "Mark not done" : "Mark done", () => toggleDone(id));
+  btn("+", "Add sub-task", () => addChild(id));
+  btn("✎", "Edit (colour, urgency, due date, notes)", () => editTask(id));
+  if (kind === "tree" && !isTreeRoot) btn("◎", "Focus on this task", () => { state.focus = id; setView("mode", "focus"); });
+  if (id !== "root") {
+    btn("⧉", "Duplicate (with its sub-tasks)", () => duplicateTask(id));
+    btn("✕", "Delete", () => removeTask(id));
+  }
+  el.appendChild(tools);
+  // Touch screens: ⋯ shows this note's tools (CSS hides it when there's a mouse)
+  if (kind !== "parent") {
+    const more = document.createElement("button");
+    more.className = "more"; more.textContent = "⋯"; more.title = "Options";
+    more.addEventListener("click", e => {
+      e.stopPropagation();
+      const open = !el.classList.contains("show-tools");
+      closeTools();
+      el.classList.toggle("show-tools", open);
+    });
+    el.appendChild(more);
+  }
+
+  if (kind === "parent") {
+    title.addEventListener("dblclick", () => editInPlace(title, t.title, v => { t.title = v; save(); render(); }));
+    makeDropTarget(el, id, true);
+  } else {
+    el.addEventListener("click", () => kind === "tree" ? (n && toggleExpand(id)) : focus(id));
+    if (!isTreeRoot) makeDraggable(el, id);
+    makeDropTarget(el, id, isTreeRoot);
+  }
+  return el;
+}
+
+const closeTools = () => document.querySelectorAll(".show-tools").forEach(n => n.classList.remove("show-tools"));
+// Tapping anywhere else closes an open set of tools
+document.addEventListener("click", e => { if (!e.target.closest(".tools, .more")) closeTools(); });
+
+function visibleChildren(cur) {
+  let list = cur.children.map(T);
+  if (state.view.hideDone) list = list.filter(t => !t.done);
+  if (state.view.sort === "urgency") {
+    list.sort((a, b) => (a.done - b.done) || URGENCY.indexOf(b.urgency) - URGENCY.indexOf(a.urgency));
+  } else if (state.view.sort === "due") {
+    list.sort((a, b) => (a.done - b.done) || (a.due || "9999").localeCompare(b.due || "9999"));
+  }
+  return list;
+}
+
+function render() {
+  if (!T(state.focus)) state.focus = "root";
+  const cur = T(state.focus);
+  const tree = state.view.mode === "tree";
+
+  // Breadcrumb trail back to the root; crumbs above the current task accept drops
+  const path = [];
+  for (let x = cur; x; x = x.parent ? T(x.parent) : null) path.unshift(x);
+  const crumbs = document.getElementById("crumbs");
+  crumbs.innerHTML = "";
+  path.forEach((p, i) => {
+    if (i) { const s = document.createElement("span"); s.className = "sep"; s.textContent = "›"; crumbs.appendChild(s); }
+    const b = document.createElement("button");
+    b.textContent = p.title;
+    if (i === path.length - 1) b.className = "current";
+    else { b.onclick = () => focus(p.id); b.title = "Go up to here (or drop a task here to move it)"; makeDropTarget(b, p.id, true); }
+    crumbs.appendChild(b);
+  });
+
+  const up = document.getElementById("up");
+  up.disabled = !cur.parent;
+  up.textContent = cur.parent ? `↑ Up to ${T(cur.parent).title}` : "↑ Up";
+  up.title = cur.parent ? "Go up one level (Backspace, Esc or Alt+↑; mouse or phone back button)" : "Already at the top";
+  syncBack();
+
+  const status = document.getElementById("status");
+  const dirty = (state.savedAt || 0) > (state.fileSavedAt || 0);
+  status.textContent = dirty ? "Unsaved changes" : state.fileSavedAt ? "Saved to file" : "";
+  status.className = dirty ? "dirty" : "";
+  document.getElementById("sort").value = state.view.sort;
+  document.getElementById("hideDone").checked = state.view.hideDone;
+  document.querySelectorAll("#modes button").forEach(b => b.classList.toggle("on", b.dataset.mode === state.view.mode));
+  document.getElementById("levels").style.display = tree ? "" : "none";
+  document.getElementById("hint").textContent = touchUI
+    ? (tree ? "Tap a task to expand it." : "Tap a task to open it.") + " Press and hold to drag. ⋯ for options."
+    : (tree ? "Click a task to expand it." : "Click a task to open it.") + " Drag tasks to move them.";
+
+  const main = document.getElementById("main");
+  main.innerHTML = "";
+  main.className = tree ? "tree-mode" : "";
+  if (tree) renderTree(main, cur); else renderFocus(main, cur);
+}
+
+function renderTree(main, cur) {
+  const branch = t => {
+    const li = document.createElement("li");
+    li.appendChild(noteEl(t.id, "tree"));
+    const kids = state.view.expanded[t.id] ? visibleChildren(t) : [];
+    if (kids.length) {
+      const ul = document.createElement("ul");
+      kids.forEach(k => ul.appendChild(branch(k)));
+      li.appendChild(ul);
+    }
+    return li;
+  };
+  const wrap = document.createElement("div");
+  wrap.className = "tree-wrap";
+  const box = document.createElement("div");
+  box.className = "tree";
+  const ul = document.createElement("ul");
+  ul.appendChild(branch(cur));
+  box.appendChild(ul);
+  wrap.appendChild(box);
+  main.appendChild(wrap);
+}
+
+function renderFocus(main, cur) {
+  main.appendChild(noteEl(cur.id, "parent"));
+  main.appendChild(Object.assign(document.createElement("div"), { className: "stem" }));
+
+  const kids = visibleChildren(cur);
+  const row = document.createElement("div");
+  row.className = "row" + (kids.length ? " has-line" : "");
+  for (const c of kids) {
+    const slot = document.createElement("div");
+    slot.className = "slot";
+    slot.appendChild(noteEl(c.id, "child"));
+    row.appendChild(slot);
+  }
+  const addSlot = document.createElement("div");
+  addSlot.className = "slot";
+  const add = document.createElement("button");
+  add.className = "add"; add.textContent = "+ Add task";
+  add.title = "Type a name and press Enter. Use the + on a note for more options.";
+  add.onclick = () => {
+    const holder = document.createElement("div");
+    holder.className = "note"; holder.style.background = `var(--${COLORS[cur.children.length % 5]})`;
+    const ph = document.createElement("div");
+    holder.appendChild(ph);
+    add.replaceWith(holder);
+    editInPlace(ph, "", v => addTask(cur.id, { title: v }));
+  };
+  addSlot.appendChild(add);
+  row.appendChild(addSlot);
+  main.appendChild(row);
+
+  const hidden = cur.children.length - kids.length;
+  if (!cur.children.length) {
+    main.appendChild(Object.assign(document.createElement("p"), {
+      className: "empty", textContent: "No sub-tasks yet. Add one, then click it to go a level deeper."
+    }));
+  } else if (hidden) {
+    main.appendChild(Object.assign(document.createElement("p"), {
+      className: "empty", textContent: `${hidden} done task${hidden > 1 ? "s" : ""} hidden.`
+    }));
+  }
+}
+
+document.getElementById("sort").onchange = e => setView("sort", e.target.value);
+document.getElementById("hideDone").onchange = e => setView("hideDone", e.target.checked);
+document.querySelectorAll("#modes button").forEach(b => b.onclick = () => {
+  if (b.dataset.mode === "tree") state.view.expanded[state.focus] = true;
+  setView("mode", b.dataset.mode);
+});
+document.querySelectorAll("#levels button").forEach(b => b.onclick = () => expandTo(b.dataset.lv === "all" ? Infinity : +b.dataset.lv));
+document.getElementById("up").onclick = goUp;
+// Keyboard: Backspace, Esc or Alt+Up goes up a level (not while typing or with the editor open)
+document.addEventListener("keydown", e => {
+  if (e.target.closest("input, textarea, select") || document.querySelector("dialog[open]")) return;
+  if (e.key === "Backspace" || e.key === "Escape" || (e.key === "ArrowUp" && e.altKey)) { e.preventDefault(); goUp(); }
+});
+// The back button (phone, mouse or browser) goes up a level. While there is a level above,
+// one extra history entry is kept; pressing back uses it up and we step up instead of leaving.
+// (If you reach the top another way the entry stays, so back needs one extra press to close the app.)
+let backArmed = false;
+function syncBack() {
+  if (backArmed || !T(state.focus).parent) return;
+  try { history.pushState({ taskTreeUp: true }, ""); backArmed = true; } catch (e) {}
+}
+window.addEventListener("popstate", () => {
+  backArmed = false;
+  goUp();
+  syncBack();
+});
+// Offline support when installed on a phone (only works when served from a web address, not a file)
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(() => {});
+
+render();
+</script>
+</body>
+</html>
